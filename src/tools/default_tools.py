@@ -140,7 +140,6 @@ async def get_system_info() -> Dict[str, Any]:
     """Get system information."""
     try:
         import platform
-        import psutil
         
         return {
             "success": True,
@@ -148,13 +147,6 @@ async def get_system_info() -> Dict[str, Any]:
             "platform_version": platform.version(),
             "architecture": platform.architecture()[0],
             "hostname": platform.node(),
-            "cpu_count": psutil.cpu_count(),
-            "memory_total": psutil.virtual_memory().total,
-            "memory_available": psutil.virtual_memory().available,
-            "disk_usage": {
-                "total": psutil.disk_usage('/').total,
-                "free": psutil.disk_usage('/').free
-            }
         }
     except Exception as e:
         return {"success": False, "error": str(e)}

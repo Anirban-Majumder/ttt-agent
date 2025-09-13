@@ -1,9 +1,7 @@
-import asyncio
 import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from tenacity import retry, stop_after_attempt, wait_exponential
 from config.settings import settings
 
@@ -30,17 +28,10 @@ class GeminiClient:
                 "max_output_tokens": 8192,
             }
             
-            safety_settings = {
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            }
             
             self.model = genai.GenerativeModel(
                 model_name="gemini-2.0-flash-exp",  # Updated model name
-                generation_config=generation_config,
-                safety_settings=safety_settings
+                generation_config=generation_config
             )
             
             print("✅ Gemini client initialized successfully")
