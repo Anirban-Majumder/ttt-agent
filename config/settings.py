@@ -8,8 +8,14 @@ from pathlib import Path
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
-    # API Configuration
-    gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
+    # API Configuration - Support both variable names
+    google_api_key: str = Field(default="", env="GOOGLE_API_KEY")  
+    gemini_api_key: str = Field(default="", env="GEMINI_API_KEY")
+    
+    @property
+    def api_key(self) -> str:
+        """Get API key, preferring GOOGLE_API_KEY over GEMINI_API_KEY."""
+        return self.google_api_key or self.gemini_api_key
     
     # Database Configuration
     chroma_db_path: str = Field(default="./data/chroma_db", env="CHROMA_DB_PATH")

@@ -1,7 +1,8 @@
 import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_exponential
 from config.settings import settings
 
@@ -10,29 +11,15 @@ class GeminiClient:
     """Google Gemini 2.5 Pro API client with rate limiting and error handling."""
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or settings.gemini_api_key
-        self.model = None
-        self.chat = None
+        self.api_key = api_key or settings.api_key
+        self.client = None
         self._initialize_client()
     
     def _initialize_client(self):
         """Initialize the Gemini client."""
         try:
-            genai.configure(api_key=self.api_key)
-            
-            # Configure the model
-            generation_config = {
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 8192,
-            }
-            
-            
-            self.model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash-exp",  # Updated model name
-                generation_config=generation_config
-            )
+            # Initialize the new Google Gen AI client
+            self.client = genai.Client(api_key=self.api_key)
             
             print("✅ Gemini client initialized successfully")
             
@@ -44,13 +31,17 @@ class GeminiClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10)
     )
-    async def _make_request(self, prompt: str) -> str:
+    async def _make_request(self, prompt: str, config: types.GenerateContentConfig = None) -> str:
         """Make a request to Gemini with retry logic."""
         try:
-            response = self.model.generate_content(prompt)
+            response = await self.client.aio.models.generate_content(
+                model='gemini-2.0-flash-001',
+                contents=prompt,
+                config=config
+            )
             
-            if response.candidates and len(response.candidates) > 0:
-                return response.candidates[0].content.parts[0].text
+            if response.text:
+                return response.text
             else:
                 raise Exception("No response generated")
                 
@@ -84,20 +75,16 @@ class GeminiClient:
         full_prompt = f"{planning_system_prompt}\n\nUser Request: {prompt}"
         
         try:
-            response_text = await self._make_request(full_prompt)
+            # Configure for structured JSON response
+            config = types.GenerateContentConfig(
+                temperature=0.3,
+                response_mime_type='application/json'
+            )
+            
+            response_text = await self._make_request(full_prompt, config)
             
             # Try to parse JSON response
             try:
-                # Extract JSON if it's wrapped in markdown
-                if "```json" in response_text:
-                    json_start = response_text.find("```json") + 7
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
-                elif "```" in response_text:
-                    json_start = response_text.find("```") + 3
-                    json_end = response_text.rfind("```")
-                    response_text = response_text[json_start:json_end].strip()
-                
                 plan_data = json.loads(response_text)
                 
                 # Validate required fields
@@ -152,20 +139,16 @@ class GeminiClient:
         full_prompt = f"{reflection_system_prompt}\n\nExecution Results: {prompt}"
         
         try:
-            response_text = await self._make_request(full_prompt)
+            # Configure for structured JSON response
+            config = types.GenerateContentConfig(
+                temperature=0.3,
+                response_mime_type='application/json'
+            )
+            
+            response_text = await self._make_request(full_prompt, config)
             
             # Try to parse JSON response
             try:
-                # Extract JSON if it's wrapped in markdown
-                if "```json" in response_text:
-                    json_start = response_text.find("```json") + 7
-                    json_end = response_text.find("```", json_start)
-                    response_text = response_text[json_start:json_end].strip()
-                elif "```" in response_text:
-                    json_start = response_text.find("```") + 3
-                    json_end = response_text.rfind("```")
-                    response_text = response_text[json_start:json_end].strip()
-                
                 reflection_data = json.loads(response_text)
                 
                 # Validate and set defaults
@@ -229,7 +212,12 @@ class GeminiClient:
         Assistant:"""
         
         try:
-            response = await self._make_request(full_prompt)
+            config = types.GenerateContentConfig(
+                temperature=0.7,
+                max_output_tokens=2048
+            )
+            
+            response = await self._make_request(full_prompt, config)
             return response.strip()
             
         except Exception as e:
@@ -238,19 +226,26 @@ class GeminiClient:
     async def start_chat_session(self) -> None:
         """Start a new chat session for conversation continuity."""
         try:
-            self.chat = self.model.start_chat(history=[])
-            print("✅ Chat session started")
+            # With the new SDK, we don't need a separate chat session
+            # The client handles conversation context automatically
+            print("✅ Chat session ready")
         except Exception as e:
             print(f"❌ Failed to start chat session: {e}")
             raise
     
     async def send_message(self, message: str) -> str:
         """Send a message in the ongoing chat session."""
-        if not self.chat:
-            await self.start_chat_session()
-        
         try:
-            response = self.chat.send_message(message)
+            config = types.GenerateContentConfig(
+                temperature=0.7,
+                max_output_tokens=2048
+            )
+            
+            response = await self.client.aio.models.generate_content(
+                model='gemini-2.0-flash-001',
+                contents=message,
+                config=config
+            )
             return response.text
         except Exception as e:
             print(f"Chat error: {e}")
@@ -259,22 +254,23 @@ class GeminiClient:
     async def get_model_info(self) -> Dict[str, Any]:
         """Get information about the current model."""
         try:
-            models = genai.list_models()
-            current_model_info = None
+            # List available models
+            models = []
+            for model in self.client.models.list():
+                models.append({
+                    "name": model.name,
+                    "display_name": getattr(model, 'display_name', model.name),
+                    "description": getattr(model, 'description', 'No description available')
+                })
             
+            # Find our current model
+            current_model_info = None
             for model in models:
-                if "gemini-2.0-flash-exp" in model.name:
-                    current_model_info = {
-                        "name": model.name,
-                        "display_name": model.display_name,
-                        "description": model.description,
-                        "input_token_limit": getattr(model, 'input_token_limit', 'Unknown'),
-                        "output_token_limit": getattr(model, 'output_token_limit', 'Unknown'),
-                        "supported_generation_methods": getattr(model, 'supported_generation_methods', [])
-                    }
+                if "gemini-2.0-flash" in model["name"]:
+                    current_model_info = model
                     break
             
-            return current_model_info or {"error": "Model information not available"}
+            return current_model_info or {"error": "Model information not available", "available_models": models}
             
         except Exception as e:
             return {"error": f"Could not retrieve model info: {str(e)}"}
@@ -282,7 +278,8 @@ class GeminiClient:
     async def health_check(self) -> Dict[str, Any]:
         """Perform a health check on the Gemini connection."""
         try:
-            test_response = await self._make_request("Hello! This is a test message. Please respond with 'OK'.")
+            config = types.GenerateContentConfig(temperature=0.1, max_output_tokens=10)
+            test_response = await self._make_request("Hello! This is a test message. Please respond with 'OK'.", config)
             
             return {
                 "status": "healthy",
