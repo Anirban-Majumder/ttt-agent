@@ -5,8 +5,9 @@ import sys
 import os
 from pathlib import Path
 
-# Add src to Python path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from src.ui.gradio_interface import launch_ui
 from config.settings import settings
